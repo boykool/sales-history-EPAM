@@ -2,4 +2,4 @@ SET search_path TO sh, public;
 
 
 
-SELECT * FROM sales LIMIT 5;
+SELECT * FROM sales LIMIT 12;
