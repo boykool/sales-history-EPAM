@@ -571,13 +571,213 @@ ORDER BY  t.calendar_month_number;
  */
 
 
+
+
+/*
+ * 
+ * https://claude.ai/share/6ea320dc-cc21-4fe2-9976-ccead5253af3
+ * 
+ */
+
+
+
+-- Quarterly sales for 3 selected customers in year 2000.
+-- For every row we additionally expose Q1..Q4 sales of the SAME customer
+-- using window functions over a per-customer frame covering the whole partition.
+
+SELECT
+    c.cust_id,
+    t.calendar_quarter_desc,
+    SUM(s.amount_sold)                            AS q_sales,
+    FIRST_VALUE(SUM(s.amount_sold))     OVER w    AS q1,
+    NTH_VALUE  (SUM(s.amount_sold), 2)  OVER w    AS q2,
+    NTH_VALUE  (SUM(s.amount_sold), 3)  OVER w    AS q3,
+    LAST_VALUE (SUM(s.amount_sold))     OVER w    AS q4
+FROM       sh.sales     s
+      JOIN sh.customers c ON c.cust_id = s.cust_id
+      JOIN sh.times     t ON t.time_id = s.time_id
+WHERE  t.calendar_year = 2000
+  AND  c.cust_id IN (2595, 9646, 11111)
+GROUP BY
+    c.cust_id,
+    t.calendar_quarter_desc,
+    t.calendar_quarter_number
+WINDOW w AS (
+    PARTITION BY c.cust_id
+    ORDER BY     c.cust_id, t.calendar_quarter_desc
+    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+)
+ORDER BY
+    c.cust_id,
+    t.calendar_quarter_desc;
+
+
+
+
+-- NTH_VALUE
+
+SELECT
+    c.cust_id,
+    t.calendar_quarter_desc,
+    SUM(amount_sold) AS q_sales,
+    FIRST_VALUE(SUM(amount_sold)) OVER w AS q1,
+    NTH_VALUE(SUM(amount_sold), 2) OVER w AS q2,
+    NTH_VALUE(SUM(amount_sold), 3) OVER w AS q3,
+    LAST_VALUE(SUM(amount_sold)) OVER w AS q4
+FROM
+    sh.sales s
+JOIN
+    sh.customers c ON c.cust_id = s.cust_id
+JOIN
+    sh.times t ON t.time_id = s.time_id
+WHERE
+    t.calendar_year = 2000
+AND
+    c.cust_id IN (2595, 9646, 11111)
+GROUP BY
+    c.cust_id,
+    t.calendar_quarter_desc,
+    t.calendar_quarter_number
+WINDOW
+    w AS (PARTITION BY c.cust_id ORDER BY c.cust_id, t.calendar_quarter_desc
+    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+ORDER BY
+    c.cust_id,
+    t.calendar_quarter_desc;
+
+
+
+-- Outer query collapses 4 duplicated rows per customer into 1,
+-- exposing quarterly sales Q1..Q4 as separate columns.
+
+SELECT
+    cust_id,
+    MAX(q1) AS q1,
+    MAX(q2) AS q2,
+    MAX(q3) AS q3,
+    MAX(q4) AS q4
+FROM (
+    -- Inner query is exactly the one from Step 2
+    SELECT
+        c.cust_id,
+        t.calendar_quarter_desc,
+        SUM(s.amount_sold)                            AS q_sales,
+        FIRST_VALUE(SUM(s.amount_sold))     OVER w    AS q1,
+        NTH_VALUE  (SUM(s.amount_sold), 2)  OVER w    AS q2,
+        NTH_VALUE  (SUM(s.amount_sold), 3)  OVER w    AS q3,
+        LAST_VALUE (SUM(s.amount_sold))     OVER w    AS q4
+    FROM       sh.sales     s
+          JOIN sh.customers c ON c.cust_id = s.cust_id
+          JOIN sh.times     t ON t.time_id = s.time_id
+    WHERE  t.calendar_year = 2000
+      AND  c.cust_id IN (2595, 9646, 11111)
+    GROUP BY
+        c.cust_id,
+        t.calendar_quarter_desc,
+        t.calendar_quarter_number
+    WINDOW w AS (
+        PARTITION BY c.cust_id
+        ORDER BY     c.cust_id, t.calendar_quarter_desc
+        ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+    )
+) tab
+GROUP BY cust_id
+ORDER BY 1;
+
+
+
+
+-- NTH_VALUE
+
+SELECT
+    cust_id,
+    MAX(q1) AS q1,
+    MAX(q2) AS q2,
+    MAX(q3) AS q3,
+    MAX(q4) AS q4
+FROM (
+    SELECT
+        c.cust_id,
+        t.calendar_quarter_desc,
+        SUM(amount_sold) AS q_sales,
+        FIRST_VALUE(SUM(amount_sold)) OVER w AS q1,
+        NTH_VALUE(SUM(amount_sold), 2) OVER w AS q2,
+        NTH_VALUE(SUM(amount_sold), 3) OVER w AS q3,
+        LAST_VALUE(SUM(amount_sold)) OVER w AS q4
+    FROM sh.sales s
+    JOIN sh.customers c ON c.cust_id = s.cust_id
+    JOIN sh.times t ON t.time_id = s.time_id
+    WHERE t.calendar_year = 2000
+      AND c.cust_id IN (2595, 9646, 11111)
+    GROUP BY
+        c.cust_id,
+        t.calendar_quarter_desc,
+        t.calendar_quarter_number
+    WINDOW w AS (
+        PARTITION BY c.cust_id
+        ORDER BY c.cust_id, t.calendar_quarter_desc
+        ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+    )
+) tab
+GROUP BY cust_id
+ORDER BY 1;
+
+
+-- Same result, idiomatic PostgreSQL via FILTER clause.
+-- Often more readable than window + outer aggregate.
+SELECT
+    c.cust_id,
+    SUM(s.amount_sold) FILTER (WHERE t.calendar_quarter_number = 1) AS q1,
+    SUM(s.amount_sold) FILTER (WHERE t.calendar_quarter_number = 2) AS q2,
+    SUM(s.amount_sold) FILTER (WHERE t.calendar_quarter_number = 3) AS q3,
+    SUM(s.amount_sold) FILTER (WHERE t.calendar_quarter_number = 4) AS q4
+FROM       sh.sales     s
+      JOIN sh.customers c ON c.cust_id = s.cust_id
+      JOIN sh.times     t ON t.time_id = s.time_id
+WHERE  t.calendar_year = 2000
+  AND  c.cust_id IN (2595, 9646, 11111)
+GROUP BY c.cust_id
+ORDER BY c.cust_id;
+
+
+
+
+-- Same result via CASE-based pivot, works everywhere.
+SELECT
+    c.cust_id,
+    SUM(CASE WHEN t.calendar_quarter_number = 1 THEN s.amount_sold END) AS q1,
+    SUM(CASE WHEN t.calendar_quarter_number = 2 THEN s.amount_sold END) AS q2,
+    SUM(CASE WHEN t.calendar_quarter_number = 3 THEN s.amount_sold END) AS q3,
+    SUM(CASE WHEN t.calendar_quarter_number = 4 THEN s.amount_sold END) AS q4
+FROM       sh.sales     s
+      JOIN sh.customers c ON c.cust_id = s.cust_id
+      JOIN sh.times     t ON t.time_id = s.time_id
+WHERE  t.calendar_year = 2000
+  AND  c.cust_id IN (2595, 9646, 11111)
+GROUP BY c.cust_id
+ORDER BY c.cust_id;
+
+
+/*
+ * 
+ * https://claude.ai/share/6ea320dc-cc21-4fe2-9976-ccead5253af3
+ * 
+ */
+
+
+
 /*
  * 
  * https://www.postgresqltutorial.com/postgresql-window-function/
  * 
  * https://youtu.be/Wvg4PjbMTO8
  * 
+ * https://neon.com/postgresql/window-function
+ * 
  */
+
+
+
 
 
 
