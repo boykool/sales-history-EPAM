@@ -52,3 +52,78 @@ FROM
 	least_expensive_list
 ORDER BY
 	overall_position;
+
+
+
+-- Percentage difference in Hardware sales: Q4 2000 vs Q1 2000
+-- Channels: Partners and Internet
+
+WITH quarterly_sales AS (
+    SELECT
+        t.calendar_quarter_number                   AS quarter_num,
+        SUM(s.amount_sold)                          AS total_amount
+    FROM sh.sales s
+    JOIN sh.products p ON p.prod_id    = s.prod_id
+    JOIN sh.channels c ON c.channel_id = s.channel_id
+    JOIN sh.times    t ON t.time_id    = s.time_id
+    WHERE t.calendar_year            = 2000
+      AND t.calendar_quarter_number IN (1, 4)
+      AND c.channel_desc            IN ('Partners', 'Internet')
+      AND p.prod_category            = 'Hardware'
+    GROUP BY t.calendar_quarter_number
+)
+SELECT
+    ROUND(
+        ( (MAX(total_amount) FILTER (WHERE quarter_num = 4))
+        - (MAX(total_amount) FILTER (WHERE quarter_num = 1)) )
+        / (MAX(total_amount) FILTER (WHERE quarter_num = 1))
+        * 100,
+        2
+    ) AS pct_difference
+FROM quarterly_sales;
+
+
+
+-- Total cumulative sales for 2000 (all four quarters)
+-- Categories: Electronics, Hardware, Software/Other
+-- Channels:   Partners, Internet
+
+SELECT
+    ROUND(SUM(s.amount_sold)::numeric, 2) AS total_sales
+FROM sh.sales s
+JOIN sh.products p ON p.prod_id    = s.prod_id
+JOIN sh.channels c ON c.channel_id = s.channel_id
+JOIN sh.times    t ON t.time_id    = s.time_id
+WHERE t.calendar_year = 2000
+  AND c.channel_desc  IN ('Partners', 'Internet')
+  AND p.prod_category IN ('Electronics', 'Hardware', 'Software/Other');
+
+
+
+
+-- Breakdown by quarter and category for verification
+
+SELECT
+    t.calendar_quarter_number                       AS quarter_num,
+    p.prod_category                                 AS category,
+    ROUND(SUM(s.amount_sold)::numeric, 2)           AS sales
+FROM sh.sales s
+JOIN sh.products p ON p.prod_id    = s.prod_id
+JOIN sh.channels c ON c.channel_id = s.channel_id
+JOIN sh.times    t ON t.time_id    = s.time_id
+WHERE t.calendar_year = 2000
+  AND c.channel_desc  IN ('Partners', 'Internet')
+  AND p.prod_category IN ('Electronics', 'Hardware', 'Software/Other')
+GROUP BY ROLLUP (t.calendar_quarter_number, p.prod_category)
+ORDER BY quarter_num NULLS LAST, category NULLS LAST;
+
+
+
+
+
+
+
+
+
+
+
